@@ -119,7 +119,7 @@ class Resource(object):
 
     @return: A dictionary of the JSON result.
     """
-    return self.invoke("POST", relpath, params, data, self._make_headers(contenttype, headers))
+    return self.invoke("POST", relpath, params, data, self._make_headers(contenttype, headers), files, allow_redirects)
 
 
   def put(self, relpath=None, params=None, data=None, contenttype=None):
