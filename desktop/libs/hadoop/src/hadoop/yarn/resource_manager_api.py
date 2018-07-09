@@ -23,7 +23,7 @@ import threading
 from django.utils.translation import ugettext as _
 
 from desktop.lib.exceptions_renderable import PopupException
-from desktop.lib.rest.http_client import HttpClient
+from desktop.lib.rest.http_client import HttpClient, RestException
 from desktop.lib.rest.resource import Resource
 
 from hadoop import cluster
@@ -95,11 +95,24 @@ class ResourceManagerApi(object):
     return self._execute(self._root.put, 'cluster/apps/%(app_id)s/state' % {'app_id': app_id}, data=json.dumps({'state': 'KILLED'}), contenttype=_JSON_CONTENT_TYPE)
 
   def _execute(self, function, *args, **kwargs):
-    response = function(*args, **kwargs)
-
-    # YARN-2605: Yarn does not use proper HTTP redirects when the standby RM has
-    # failed back to the master RM.
-    if isinstance(response, str) and response.startswith('This is standby RM. Redirecting to the current active RM'):
-      raise YarnFailoverOccurred(response)
+    response = None
+    try:
+      response = function(*args, **kwargs)
+    except RestException, e:
+      # YARN-2605: Yarn does not use proper HTTP redirects when the standby RM has
+      # failed back to the master RM.
+      if e.code == 307 and e.message.startswith('This is standby RM'):
+        LOG.info('Received YARN failover redirect response, attempting to resolve redirect.')
+        try:
+          kwargs.update({'allow_redirects': True})
+          response = function(*args, **kwargs)
+        except Exception, e:
+          if response:
+            raise YarnFailoverOccurred(response)
+          else:
+            raise PopupException(_('Failed to resolve YARN RM: %s') % e)
+      else:
+        raise PopupException(_('YARN RM returned a failed response: %s') % e)
 
     return response
+
